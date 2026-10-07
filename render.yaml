@@ -1,0 +1,39 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# In Render: New → Blueprint → select this repo. Secrets marked `sync: false` are entered in the dashboard.
+services:
+  - type: web
+    name: gdg-mdc-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: CORS_ORIGINS
+        value: https://gdg-on-campus-mdc.netlify.app
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: CLUB_NOTIFY_EMAIL
+        sync: false
+      - key: GDG_CHAPTER_ID
+        value: "2526"
+      - key: EVENTS_SYNC_CRON
+        value: "0 */6 * * *"
