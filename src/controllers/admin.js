@@ -2,6 +2,7 @@ import { Event } from "../models/Event.js";
 import { Member } from "../models/Member.js";
 import { Partner } from "../models/Partner.js";
 import { toCsv } from "../services/csv.js";
+import { getMemberTotals, syncChapterStats } from "../services/gdgChapter.js";
 import { syncGdgEvents } from "../services/gdgEvents.js";
 import { HttpError } from "../utils/httpError.js";
 import { buildWhenFilter } from "./events.js";
@@ -105,8 +106,9 @@ export const partners = submissionHandlers(Partner, {
 
 export async function stats(req, res) {
   const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  const [membersTotal, membersThisMonth, membersByStatus, partnersTotal, partnersByStatus, upcomingEvents, pastEvents, lastSynced] =
+  const [memberTotals, membersTotal, membersThisMonth, membersByStatus, partnersTotal, partnersByStatus, upcomingEvents, pastEvents, lastSynced] =
     await Promise.all([
+      getMemberTotals(),
       Member.countDocuments(),
       Member.countDocuments({ createdAt: { $gte: startOfMonth } }),
       Member.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
@@ -119,7 +121,13 @@ export async function stats(req, res) {
 
   const toMap = (groups) => Object.fromEntries(groups.map((group) => [group._id, group.count]));
   res.json({
-    members: { total: membersTotal, thisMonth: membersThisMonth, byStatus: toMap(membersByStatus) },
+    members: {
+      total: membersTotal,
+      thisMonth: membersThisMonth,
+      byStatus: toMap(membersByStatus),
+      gdgChapter: memberTotals.gdgMembers,
+      communityTotal: memberTotals.total,
+    },
     partners: { total: partnersTotal, byStatus: toMap(partnersByStatus) },
     events: { upcoming: upcomingEvents, past: pastEvents, lastSyncedAt: lastSynced?.lastSyncedAt ?? null },
   });
@@ -170,8 +178,8 @@ export async function deleteEvent(req, res) {
 
 export async function syncEvents(req, res) {
   try {
-    const result = await syncGdgEvents();
-    res.json(result);
+    const [events, chapter] = await Promise.all([syncGdgEvents(), syncChapterStats()]);
+    res.json({ ...events, gdgMembersCount: chapter.gdgMembersCount });
   } catch (error) {
     throw new HttpError(502, `Could not sync events from gdg.community.dev: ${error.message}`);
   }

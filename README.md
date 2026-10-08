@@ -89,13 +89,14 @@ flowchart LR
 │   ├── config/
 │   │   ├── env.js             # Loads + validates environment variables (zod)
 │   │   └── db.js              # MongoDB connection (falls back to in-memory DB in dev)
-│   ├── models/                # Mongoose schemas: Member, Partner, Event, Admin
+│   ├── models/                # Mongoose schemas: Member, Partner, Event, ChapterStats, Admin
 │   ├── validators/            # zod request schemas + shared option lists
 │   ├── routes/                # public.js, auth.js, admin.js
 │   ├── controllers/           # Request handlers
 │   ├── middleware/            # auth (JWT), validate, rate limiting, error handling
 │   ├── services/
 │   │   ├── gdgEvents.js       # gdg.community.dev fetch → normalize → upsert
+│   │   ├── gdgChapter.js      # chapter member count sync + Home page totals
 │   │   ├── email.js           # Nodemailer transport + HTML email templates
 │   │   └── csv.js             # CSV export (with formula-injection protection)
 │   ├── jobs/syncEvents.js     # Cron schedule for the events sync
@@ -165,7 +166,7 @@ Use the printed dev-admin credentials to log in at `http://127.0.0.1:3000/admin`
 | `npm start` | Start in normal mode (used in production) |
 | `npm test` | Run the Jest test suite |
 | `npm run create-admin -- <email> <password> [name]` | Create or reset an admin account (requires `MONGODB_URI`) |
-| `npm run sync-events` | One-off events sync from gdg.community.dev |
+| `npm run sync-events` | One-off sync of events and the member count from gdg.community.dev |
 
 ## Environment variables
 
@@ -204,6 +205,7 @@ Errors always have the shape `{ "error": "Human-readable message", "fields"?: { 
 | `POST` | `/api/partners` | Submit a partnership inquiry. Returns `201` or `400` |
 | `GET` | `/api/events?when=upcoming\|past\|all&limit=1-100` | List visible events. Upcoming are sorted soonest first, past newest first; featured events come first |
 | `GET` | `/api/events/:id` | One event, including its full HTML description |
+| `GET` | `/api/stats` | Community numbers for the Home page: `{ members: { total, gdgMembers, siteMembers } }` |
 
 <details>
 <summary><strong>Example: <code>POST /api/members</code></strong></summary>
@@ -283,6 +285,7 @@ Errors always have the shape `{ "error": "Human-readable message", "fields"?: { 
 | **Member** | `firstName`, `lastName`, `email` (unique, lowercase), `phone`, `major`, `year`, `interests[]`, `hearAboutUs`, `additionalInfo`, `status`, `notes`, timestamps |
 | **Partner** | `companyName`, `contactName`, `email`, `phone`, `website`, `streetAddress`, `city`, `state`, `zip`, `partnershipInterest`, `message`, `status`, `notes`, timestamps |
 | **Event** | `source` (`gdg-community` or `manual`), `externalId` (gdg.community.dev id), `title`, `descriptionShort`, `description`, `startDate`, `endDate`, `timezone`, `audienceType`, `eventType`, `imageUrl`, `bannerUrl`, `url`, `location`, `hostChapter`, `tags[]`, `hidden`, `featured`, `lastSyncedAt` |
+| **ChapterStats** | `chapterId`, `gdgMembersCount` (synced from gdg.community.dev), `lastSyncedAt` |
 | **Admin** | `email` (unique), `name`, `passwordHash` (bcrypt, never returned), `lastLoginAt` |
 
 ## Events sync (gdg.community.dev)
@@ -297,6 +300,8 @@ The chapter page on gdg.community.dev runs on the Bevy platform, which exposes a
 2. It **normalizes** each event: it maps fields to our schema and builds the location from the venue fields.
 3. It **upserts** each event by its Bevy `id` (`externalId`). Content is overwritten, but admin-controlled `hidden` and `featured` flags are kept.
 4. It **removes** synced events that no longer exist upstream. Manual events are never touched.
+
+The same job also stores the chapter's **member count** (`members_count` from `GET /api/chapter_slim/<chapter-slug>/`). The Home page "Members" number comes from `GET /api/stats`. It equals the gdg.community.dev members plus everyone who signed up through the site's own form, not counting members marked `inactive`. The two lists can't be cross-checked, so someone who joined in both places is counted twice.
 
 The sync runs on startup, on the `EVENTS_SYNC_CRON` schedule, from the admin dashboard ("Sync from GDG"), or via `npm run sync-events`. RSVPs stay on gdg.community.dev; the website links each event to its official page.
 
@@ -374,7 +379,7 @@ The suites in `tests/` run the real Express app against an in-memory MongoDB, an
    ```
    You can also run the same command locally with `MONGODB_URI` pointing at the Atlas cluster.
 
-> Render free instances sleep after ~15 minutes of inactivity, so the first request after a sleep takes ~30–50 s. Upgrade the plan or use an uptime pinger on `/api/health` if that matters.
+> Render free instances sleep after ~15 minutes of inactivity, so the first request after a sleep takes ~30–50 s. To avoid that, the [`keep-alive`](.github/workflows/keep-alive.yml) GitHub Actions workflow pings `/api/health` every 10 minutes. GitHub runs scheduled workflows on a best-effort basis, and it pauses them after 60 days without repository activity. If that happens, re-enable the workflow from the **Actions** tab.
 
 Other Node hosts (Railway, Fly.io, a VPS) work the same way: run `npm ci --omit=dev && npm start` with the env vars set.
 

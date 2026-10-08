@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { env } from "../config/env.js";
+import { syncChapterStats } from "../services/gdgChapter.js";
 import { syncGdgEvents } from "../services/gdgEvents.js";
 
 async function runSync(trigger) {
@@ -8,6 +9,12 @@ async function runSync(trigger) {
     console.log(`🔄 Events sync (${trigger}): ${result.upcoming} upcoming, ${result.past} past, ${result.removed} removed`);
   } catch (error) {
     console.error(`Events sync (${trigger}) failed:`, error.message);
+  }
+  try {
+    const { gdgMembersCount } = await syncChapterStats();
+    console.log(`👥 Chapter stats sync (${trigger}): ${gdgMembersCount} GDG members`);
+  } catch (error) {
+    console.error(`Chapter stats sync (${trigger}) failed:`, error.message);
   }
 }
 
